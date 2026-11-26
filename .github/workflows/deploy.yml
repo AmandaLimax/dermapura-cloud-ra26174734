@@ -1,0 +1,38 @@
+name: CI/CD Deploy DermaPura AWS EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Build e validação da imagem Docker (IaaS)
+        run: docker build -t dermapura-web:latest .
+
+      - name: Deploy automático na instância EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo apt-get update -y
+            sudo apt-get install -y docker.io
+            sudo systemctl stop nginx || true
+            sudo systemctl disable nginx || true
+            sudo docker stop dermapura-container || true
+            sudo docker rm dermapura-container || true
+            cat << 'EOF' > ~/Dockerfile
+            FROM nginx:alpine
+            COPY index.html /usr/share/nginx/html/index.html
+            EXPOSE 80
+            EOF
+            sudo cp /var/www/html/index.html ~/index.html
+            cd ~ && sudo docker build -t dermapura-web:latest .
+            sudo docker run -d --name dermapura-container --restart always -p 80:80 dermapura-web:latest
